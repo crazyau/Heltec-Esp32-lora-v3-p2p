@@ -73,26 +73,39 @@ String stateToString(int val) {
 }
 
 void displayInputStates() {
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_10);
-  display.drawString(0, 0, "Local:");
-  display.drawString(0, 12, "1: " + stateToString(currentDigitalInputState1));
-  display.drawString(42, 12, "2: " + stateToString(currentDigitalInputState2));
-  display.drawString(84, 12, "3: " + stateToString(currentDigitalInputState3));
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_10);
 
-  display.drawString(0, 24, "Remote:");
-  display.drawString(0, 36, "1: " + stateToString(receivedDigitalInputState1));
-  display.drawString(42, 36, "2: " + stateToString(receivedDigitalInputState2));
-  display.drawString(84, 36, "3: " + stateToString(receivedDigitalInputState3));
-  // NEW: Show RX Timeout status
-  if (millis() - last_rx_time > RX_TIMEOUT_MS) {
-    display.drawString(0, 48, "RX: TIMEOUT");
-  } else {
-    display.drawString(0, 48, "RX: OK");
-  }
-  display.display();
+    display.drawString(0, 0, "Local:");
+    display.drawString(0, 12, "1: " + stateToString(currentDigitalInputState1));
+    display.drawString(42, 12, "2: " + stateToString(currentDigitalInputState2));
+    display.drawString(84, 12, "3: " + stateToString(currentDigitalInputState3));
+
+    display.drawString(0, 24, "Remote:");
+    display.drawString(0, 36, "1: " + stateToString(receivedDigitalInputState1));
+    display.drawString(42, 36, "2: " + stateToString(receivedDigitalInputState2));
+    display.drawString(84, 36, "3: " + stateToString(receivedDigitalInputState3));
+
+    // FLASHING RX TIMEOUT MESSAGE
+    if (millis() - last_rx_time > RX_TIMEOUT_MS) {
+        static bool showTimeout = true;
+        static unsigned long lastFlashTime = 0;
+        if (millis() - lastFlashTime > 500) {
+            showTimeout = !showTimeout;
+            lastFlashTime = millis();
+        }
+
+        if (showTimeout) {
+            display.drawString(0, 48, "RX: TIMEOUT");
+        }
+    } else {
+        display.drawString(0, 48, "RX: OK");
+    }
+
+    display.display();
 }
+
 
 void setup() {
   heltec_setup();
@@ -228,14 +241,14 @@ void loop() {
   }
 
   static uint32_t lastDiagPrint = 0;
-  if (millis() - lastDiagPrint > 30000) {
-    both.printf("=== Diagnostics ===\n");
-    both.printf("    TX Failures: %d\n", txFailures);
-    both.printf("    RX Failures: %d\n", rxFailures);
-    both.printf("    Malformed Packets: %d\n", malformedPackets);
-    both.printf("    Battery Voltage: %.2f V\n", batteryVoltage);
+  if (millis() - lastDiagPrint > 60000) {
+    printf("=== Diagnostics ===\n");
+    printf("    TX Failures: %d\n", txFailures);
+    printf("    RX Failures: %d\n", rxFailures);
+    printf("    Malformed Packets: %d\n", malformedPackets);
+    printf("    Battery Voltage: %.2f V\n", batteryVoltage);
     lastDiagPrint = millis();
-    both.printf("    ",RX_TIMEOUT_MS);
+    printf("    ",RX_TIMEOUT_MS);
   }
   if (millis() - last_rx_time > RX_TIMEOUT_MS) {
     digitalWrite(NO_RX_TIMEOUT_PIN, HIGH);  // No packet received in 20 sec
