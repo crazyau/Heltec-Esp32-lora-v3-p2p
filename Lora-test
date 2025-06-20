@@ -32,12 +32,14 @@ const unsigned long PERIODIC_TRANSMIT_INTERVAL_MS = 10 * 1000UL;  // 10 seconds
 String rxdata;
 volatile bool rxFlag = false;
 uint64_t last_rx_time = 0;  // Time of last valid receive
-
+float lastRSSI = 0.0;
 long counter = 0;
 uint64_t last_tx = 0;                // This still tracks the last *actual* transmission for airtime limits
 uint64_t last_periodic_tx_time = 0;  // New variable for the 10-second interval
 uint64_t tx_duration_ms;
 uint64_t minimum_pause_ms = 0;
+uint64_t ledOffTime = 0;
+const uint32_t LED_FLASH_DURATION_MS = 100;  // LED ON time in ms
 
 int currentDigitalInputState1 = -1;
 int previousDigitalInputState1 = -1;
@@ -73,37 +75,39 @@ String stateToString(int val) {
 }
 
 void displayInputStates() {
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_10);
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setFont(ArialMT_Plain_10);
 
-    display.drawString(0, 0, "Local:");
-    display.drawString(0, 12, "1: " + stateToString(currentDigitalInputState1));
-    display.drawString(42, 12, "2: " + stateToString(currentDigitalInputState2));
-    display.drawString(84, 12, "3: " + stateToString(currentDigitalInputState3));
+  display.drawString(0, 0, "Local:");
+  display.drawString(0, 12, "1: " + stateToString(currentDigitalInputState1));
+  display.drawString(42, 12, "2: " + stateToString(currentDigitalInputState2));
+  display.drawString(84, 12, "3: " + stateToString(currentDigitalInputState3));
 
-    display.drawString(0, 24, "Remote:");
-    display.drawString(0, 36, "1: " + stateToString(receivedDigitalInputState1));
-    display.drawString(42, 36, "2: " + stateToString(receivedDigitalInputState2));
-    display.drawString(84, 36, "3: " + stateToString(receivedDigitalInputState3));
+  display.drawString(0, 24, "Remote:");
+  display.drawString(0, 36, "1: " + stateToString(receivedDigitalInputState1));
+  display.drawString(42, 36, "2: " + stateToString(receivedDigitalInputState2));
+  display.drawString(84, 36, "3: " + stateToString(receivedDigitalInputState3));
 
-    // FLASHING RX TIMEOUT MESSAGE
-    if (millis() - last_rx_time > RX_TIMEOUT_MS) {
-        static bool showTimeout = true;
-        static unsigned long lastFlashTime = 0;
-        if (millis() - lastFlashTime > 500) {
-            showTimeout = !showTimeout;
-            lastFlashTime = millis();
-        }
-
-        if (showTimeout) {
-            display.drawString(0, 48, "RX: TIMEOUT");
-        }
-    } else {
-        display.drawString(0, 48, "RX: OK");
+  // FLASHING RX TIMEOUT MESSAGE
+  if (millis() - last_rx_time > RX_TIMEOUT_MS) {
+    static bool showTimeout = true;
+    static unsigned long lastFlashTime = 0;
+    if (millis() - lastFlashTime > 500) {
+      showTimeout = !showTimeout;
+      lastFlashTime = millis();
     }
 
-    display.display();
+    if (showTimeout) {
+      display.drawString(0, 48, "RX: TIMEOUT");
+    }
+  } else {
+    char rssiStr[24];
+        snprintf(rssiStr, sizeof(rssiStr), "RX: OK  RSSI: %.1f dBm", lastRSSI);
+        display.drawString(0, 48, rssiStr);
+  }
+
+  display.display();
 }
 
 
@@ -145,6 +149,10 @@ void setup() {
 void loop() {
   heltec_loop();
 
+if (ledOffTime != 0 && millis() > ledOffTime) {
+    heltec_led(0);    // Turn LED OFF
+    ledOffTime = 0;
+}
   currentDigitalInputState1 = digitalRead(DIGITAL_INPUT_PIN1);
   currentDigitalInputState2 = digitalRead(DIGITAL_INPUT_PIN2);
   currentDigitalInputState3 = digitalRead(DIGITAL_INPUT_PIN3);
@@ -186,7 +194,7 @@ void loop() {
              currentDigitalInputState3,
              batteryVoltage);
 
-    both.printf("TX [%s] ", message);
+    printf("TX [%s] ", message);
 
     radio.clearDio1Action();
     heltec_led(50);
@@ -196,7 +204,7 @@ void loop() {
     heltec_led(0);
 
     if (tx_status == RADIOLIB_ERR_NONE) {
-      both.printf("OK (%i ms)\n", (int)tx_duration_ms);
+      printf("OK (%i ms)\n", (int)tx_duration_ms);
     } else {
       both.printf("fail (%i)\n", tx_status);
       txFailures++;
@@ -212,6 +220,11 @@ void loop() {
     rxFlag = false;
     int read_status = radio.readData(rxdata);
     if (read_status == RADIOLIB_ERR_NONE) {
+      float rssi = radio.getRSSI();
+      float snr = radio.getSNR();
+      heltec_led(1);                // Turn LED ON
+    ledOffTime = millis() + LED_FLASH_DURATION_MS;  // Schedule OFF
+      lastRSSI = rssi;
       int i1 = rxdata.indexOf(',');
       int i2 = rxdata.indexOf(',', i1 + 1);
       int i3 = rxdata.indexOf(',', i2 + 1);
@@ -226,7 +239,8 @@ void loop() {
         receivedDigitalInputState1 = input1Str.toInt();
         receivedDigitalInputState2 = input2Str.toInt();
         receivedDigitalInputState3 = input3Str.toInt();
-        both.printf("RX: %s\n", rxdata.c_str());
+        printf("RX: %s\n", rxdata.c_str());
+        printf("RSSI: %.1f dBm, SNR: %.1f dB\n", rssi, snr);
         displayInputStates();  // Update display with new remote values
       } else {
         malformedPackets++;
@@ -248,7 +262,7 @@ void loop() {
     printf("    Malformed Packets: %d\n", malformedPackets);
     printf("    Battery Voltage: %.2f V\n", batteryVoltage);
     lastDiagPrint = millis();
-    printf("    ",RX_TIMEOUT_MS);
+    printf("    ", RX_TIMEOUT_MS);
   }
   if (millis() - last_rx_time > RX_TIMEOUT_MS) {
     digitalWrite(NO_RX_TIMEOUT_PIN, HIGH);  // No packet received in 20 sec
