@@ -4,3 +4,4 @@ both battery voltages
 RSSI strength
 RX received in last 20 seconds
 Displaying most of the info on the Oled
+Using Heltec unofficail library https://github.com/ropg/heltec_esp32_lora_v3
