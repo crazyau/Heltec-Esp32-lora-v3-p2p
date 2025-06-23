@@ -1,6 +1,7 @@
 /**
  * LoRa Packet Send/Receive with 3 Digital Inputs, OLED Display, and Diagnostics
  * Displays local and remote digital input states on screen test
+ * Added group_id to only respond to tx in same group
  * Compatible with Heltec WiFi LoRa 32 V3
  * working version with inputs and outputs
  */
@@ -16,7 +17,10 @@ const float BANDWIDTH = 500.0;
 const int SPREADING_FACTOR = 9;
 const int TRANSMIT_POWER = 22;
 const int NO_RX_TIMEOUT_PIN = 45;
-const unsigned long RX_TIMEOUT_MS = 20000;  // 20 seconds
+const unsigned long RX_TIMEOUT_MS = 20000;             // 20 seconds
+const int GROUP_ID = 2;                                // <-- Change per device to isolate groups
+const unsigned long BATTERY_READ_INTERVAL_MS = 60000;  // 1 minute
+uint64_t lastBatteryReadTime = 0;
 
 
 const int DIGITAL_INPUT_PIN1 = 5;
@@ -80,6 +84,7 @@ void displayInputStates() {
   display.setFont(ArialMT_Plain_10);
 
   display.drawString(0, 0, "Local:");
+  display.drawString(70, 0, "Group: " + String(GROUP_ID));
   display.drawString(0, 12, "1: " + stateToString(currentDigitalInputState1));
   display.drawString(42, 12, "2: " + stateToString(currentDigitalInputState2));
   display.drawString(84, 12, "3: " + stateToString(currentDigitalInputState3));
@@ -103,13 +108,15 @@ void displayInputStates() {
     }
   } else {
     char rssiStr[24];
-        snprintf(rssiStr, sizeof(rssiStr), "RX: OK  RSSI: %.1f dBm", lastRSSI);
-        display.drawString(0, 48, rssiStr);
+    snprintf(rssiStr, sizeof(rssiStr), "RX: OK  RSSI: %.1f dBm", lastRSSI);
+    display.drawString(0, 48, rssiStr);
   }
 
   display.display();
 }
-
+void rx() {
+  rxFlag = true;
+}
 
 void setup() {
   heltec_setup();
@@ -149,14 +156,18 @@ void setup() {
 void loop() {
   heltec_loop();
 
-if (ledOffTime != 0 && millis() > ledOffTime) {
-    heltec_led(0);    // Turn LED OFF
+  if (ledOffTime != 0 && millis() > ledOffTime) {
+    heltec_led(0);  // Turn LED OFF
     ledOffTime = 0;
-}
+  }
   currentDigitalInputState1 = digitalRead(DIGITAL_INPUT_PIN1);
   currentDigitalInputState2 = digitalRead(DIGITAL_INPUT_PIN2);
   currentDigitalInputState3 = digitalRead(DIGITAL_INPUT_PIN3);
-  batteryVoltage = readBatteryVoltage();
+  if (millis() - lastBatteryReadTime > BATTERY_READ_INTERVAL_MS) {
+    batteryVoltage = readBatteryVoltage();
+    lastBatteryReadTime = millis();
+  }
+
 
   bool digitalChanged =
     currentDigitalInputState1 != previousDigitalInputState1 || currentDigitalInputState2 != previousDigitalInputState2 || currentDigitalInputState3 != previousDigitalInputState3;
@@ -166,9 +177,9 @@ if (ledOffTime != 0 && millis() > ledOffTime) {
   previousDigitalInputState3 = currentDigitalInputState3;
 
   displayInputStates();  // Update OLED always
-  digitalWrite(40, receivedDigitalInputState1);
-  digitalWrite(41, receivedDigitalInputState2);
-  digitalWrite(42, receivedDigitalInputState3);
+                         // digitalWrite(40, receivedDigitalInputState1);
+  //digitalWrite(41, receivedDigitalInputState2);
+  //digitalWrite(42, receivedDigitalInputState3);
 
   // Check for transmit conditions:
   // 1. Enough time has passed since the last transmission (airtime legal limit)
@@ -188,11 +199,13 @@ if (ledOffTime != 0 && millis() > ledOffTime) {
 
     if (counter >= 1000) { counter = 0; }
     char message[64];
-    snprintf(message, sizeof(message), "%d,%d,%d,%d,%.2f", counter++,
+    snprintf(message, sizeof(message), "%d,%d,%d,%d,%.2f,%d", counter++,
              currentDigitalInputState1,
              currentDigitalInputState2,
              currentDigitalInputState3,
-             batteryVoltage);
+             batteryVoltage,
+             GROUP_ID);
+
 
     printf("TX [%s] ", message);
 
@@ -222,23 +235,37 @@ if (ledOffTime != 0 && millis() > ledOffTime) {
     if (read_status == RADIOLIB_ERR_NONE) {
       float rssi = radio.getRSSI();
       float snr = radio.getSNR();
-      heltec_led(1);                // Turn LED ON
-    ledOffTime = millis() + LED_FLASH_DURATION_MS;  // Schedule OFF
+      heltec_led(1);                                  // Turn LED ON
+      ledOffTime = millis() + LED_FLASH_DURATION_MS;  // Schedule OFF
       lastRSSI = rssi;
       int i1 = rxdata.indexOf(',');
       int i2 = rxdata.indexOf(',', i1 + 1);
       int i3 = rxdata.indexOf(',', i2 + 1);
       int i4 = rxdata.indexOf(',', i3 + 1);
-      last_rx_time = millis();
+      int i5 = rxdata.indexOf(',', i4 + 1);
 
-      if (i1 != -1 && i2 != -1 && i3 != -1 && i4 != -1) {
+      last_rx_time = millis();
+      if (i1 != -1 && i2 != -1 && i3 != -1 && i4 != -1 && i5 != -1) {
         String input1Str = rxdata.substring(i1 + 1, i2);
         String input2Str = rxdata.substring(i2 + 1, i3);
         String input3Str = rxdata.substring(i3 + 1, i4);
+        String groupStr = rxdata.substring(i5 + 1);
+        int packetGroupID = groupStr.toInt();
 
+        if (packetGroupID != GROUP_ID) {
+          printf("Ignored packet from group %d\n", packetGroupID);
+          return;
+        }
+
+        // Group matched, update outputs
         receivedDigitalInputState1 = input1Str.toInt();
         receivedDigitalInputState2 = input2Str.toInt();
         receivedDigitalInputState3 = input3Str.toInt();
+
+        digitalWrite(40, receivedDigitalInputState1);
+        digitalWrite(41, receivedDigitalInputState2);
+        digitalWrite(42, receivedDigitalInputState3);
+
         printf("RX: %s\n", rxdata.c_str());
         printf("RSSI: %.1f dBm, SNR: %.1f dB\n", rssi, snr);
         displayInputStates();  // Update display with new remote values
@@ -262,15 +289,11 @@ if (ledOffTime != 0 && millis() > ledOffTime) {
     printf("    Malformed Packets: %d\n", malformedPackets);
     printf("    Battery Voltage: %.2f V\n", batteryVoltage);
     lastDiagPrint = millis();
-    printf("    ", RX_TIMEOUT_MS);
+    printf("     RX_timeout:%d\n", RX_TIMEOUT_MS);
   }
   if (millis() - last_rx_time > RX_TIMEOUT_MS) {
     digitalWrite(NO_RX_TIMEOUT_PIN, HIGH);  // No packet received in 20 sec
   } else {
     digitalWrite(NO_RX_TIMEOUT_PIN, LOW);  // Packet received recently
   }
-}
-
-void rx() {
-  rxFlag = true;
 }
