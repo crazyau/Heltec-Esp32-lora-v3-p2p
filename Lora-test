@@ -1,7 +1,6 @@
 /**
  * LoRa Packet Send/Receive with 3 Digital Inputs, OLED Display, and Diagnostics
  * Displays local and remote digital input states on screen test
- * Added group_id to only respond to tx in same group
  * Compatible with Heltec WiFi LoRa 32 V3
  * working version with inputs and outputs
  */
@@ -11,7 +10,7 @@
 #include "images.h"
 
 // === Configuration ===
-// const int PAUSE = 3; // No longer needed for fixed 10-second interval, can be removed or repurposed
+
 const float FREQUENCY = 915.0;
 const float BANDWIDTH = 500.0;
 const int SPREADING_FACTOR = 9;
@@ -27,7 +26,7 @@ const int DIGITAL_INPUT_PIN1 = 5;
 const int DIGITAL_INPUT_PIN2 = 6;
 const int DIGITAL_INPUT_PIN3 = 7;
 const int remoteOutputPins[] = { 40, 41, 42 };  // New outputs controlled by remote inputs
-//const int BATTERY_PIN = 39;
+
 
 const int MIN_PAUSE_FACTOR = 50;                                  //was 100
 const unsigned long PERIODIC_TRANSMIT_INTERVAL_MS = 10 * 1000UL;  // 10 seconds
@@ -288,8 +287,9 @@ void loop() {
     printf("    RX Failures: %d\n", rxFailures);
     printf("    Malformed Packets: %d\n", malformedPackets);
     printf("    Battery Voltage: %.2f V\n", batteryVoltage);
+    printf("    Time since last RX: %.1f s\n", (millis() - last_rx_time) / 1000.0);
+
     lastDiagPrint = millis();
-    printf("     RX_timeout:%d\n", RX_TIMEOUT_MS);
   }
   if (millis() - last_rx_time > RX_TIMEOUT_MS) {
     digitalWrite(NO_RX_TIMEOUT_PIN, HIGH);  // No packet received in 20 sec
