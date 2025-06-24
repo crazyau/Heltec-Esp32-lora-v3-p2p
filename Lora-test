@@ -74,7 +74,7 @@ void logo() {
 }
 
 String stateToString(int val) {
-  return val == HIGH ? "HIGH" : "LOW";
+  return val == LOW ? "ON" : "OFF";
 }
 
 void displayInputStates() {
@@ -97,13 +97,14 @@ void displayInputStates() {
   if (millis() - last_rx_time > RX_TIMEOUT_MS) {
     static bool showTimeout = true;
     static unsigned long lastFlashTime = 0;
-    if (millis() - lastFlashTime > 500) {
+    if (millis() - lastFlashTime > 800) {
       showTimeout = !showTimeout;
       lastFlashTime = millis();
     }
 
     if (showTimeout) {
-      display.drawString(0, 48, "RX: TIMEOUT");
+      float timeout = (millis() - last_rx_time) / 1000.0;
+      display.drawString(0, 48, "RX: TIMEOUT    " + String(timeout, 1) + " s");
     }
   } else {
     char rssiStr[24];
